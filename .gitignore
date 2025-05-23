@@ -1,0 +1,48 @@
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+CTestTestfile.cmake
+CPackConfig.cmake
+CPackSourceConfig.cmake
+
+# Build output
+**/build/
+**/bin/
+**/lib/
+*.exe
+*.dll
+*.so
+*.dylib
+*.lib
+*.a
+*.pdb
+*.ilk
+*.obj
+*.o
+*.pch
+*.gch
+*.tlog
+*.manifest
+*.rsp
+*.res
+*.map
+
+# IDE specific files
+.idea/
+.vscode/
+*.suo
+*.user
+*.sln.docstates
+*.vcxproj.filters
+*.vcxproj.user
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Project specific
+playground/cmake-build-debug/
+sound-engine/cmake-build-debug/ # Assuming this might exist or be created
+
