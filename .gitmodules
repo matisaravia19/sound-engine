@@ -1,3 +1,7 @@
 [submodule "lib/raylib"]
 	path = lib/raylib
 	url = https://github.com/raysan5/raylib.git
+[submodule "VkFFT"]
+	path = lib/VkFFT
+	url = https://github.com/DTolm/VkFFT.git
+	branch = master
