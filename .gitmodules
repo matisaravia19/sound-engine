@@ -1,7 +1,9 @@
-[submodule "lib/raylib"]
+[submodule "raylib"]
 	path = lib/raylib
 	url = https://github.com/raysan5/raylib.git
 [submodule "VkFFT"]
 	path = lib/VkFFT
 	url = https://github.com/DTolm/VkFFT.git
-	branch = master
+[submodule "glslang"]
+	path = lib/glslang
+	url = https://github.com/KhronosGroup/glslang.git
