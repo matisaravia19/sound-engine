@@ -1,10 +1,11 @@
 #include "sound-engine/impulse.h"
 #include "impl/vulkan.h"
 #include <stdexcept>
+#include <utility>
 
 se::ImpulseResponseMapper::ImpulseResponseMapper(std::shared_ptr<GpuProgram> program)
 {
-	this->program = program;
+	this->program = std::move(program);
 }
 
 se::ImpulseResponseMapper::~ImpulseResponseMapper()

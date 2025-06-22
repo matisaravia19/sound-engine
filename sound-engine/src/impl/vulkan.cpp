@@ -106,7 +106,15 @@ vk::CommandBuffer CreateCommandBuffer(vk::Device& device, vk::CommandPool& comma
 	return commandBuffers[0];
 }
 
-std::unique_ptr<se::GpuProgram> se::GpuProgram::Create()
+vk::Fence CreateFence(vk::Device& device)
+{
+	vk::FenceCreateInfo fenceInfo = vk::FenceCreateInfo()
+		.setFlags(vk::FenceCreateFlagBits::eSignaled);
+
+	return device.createFence(fenceInfo);
+}
+
+void se::GpuProgram::Init()
 {
 	auto applicationInfo = vk::ApplicationInfo()
 		.setPApplicationName("Sound Engine")
@@ -120,20 +128,17 @@ std::unique_ptr<se::GpuProgram> se::GpuProgram::Create()
 		.setEnabledExtensionCount(0)
 		.setPpEnabledExtensionNames(nullptr);
 
-	auto program = std::make_unique<GpuProgram>();
+	instance = CreateVulkanInstance();
+	physicalDevice = GetPhysicalDevice(instance);
 
-	program->instance = CreateVulkanInstance();
-	program->physicalDevice = GetPhysicalDevice(program->instance);
+	uint32_t queueFamilyIndex = GetQueueFamilyIndex(physicalDevice);
 
-	uint32_t queueFamilyIndex = GetQueueFamilyIndex(program->physicalDevice);
+	device = CreateLogicalDevice(physicalDevice, queueFamilyIndex);
+	queue = device.getQueue(queueFamilyIndex, 0);
 
-	program->device = CreateLogicalDevice(program->physicalDevice, queueFamilyIndex);
-	program->queue = program->device.getQueue(queueFamilyIndex, 0);
-
-	program->commandPool = CreateCommandPool(program->device, queueFamilyIndex);
-	program->commandBuffer = CreateCommandBuffer(program->device, program->commandPool);
-
-	return program;
+	commandPool = CreateCommandPool(device, queueFamilyIndex);
+	commandBuffer = CreateCommandBuffer(device, commandPool);
+	fence = CreateFence(device);
 }
 
 void se::GpuProgram::Destroy()
@@ -187,7 +192,7 @@ se::GpuBuffer se::GpuProgram::GetBuffer(vk::DeviceSize size, vk::BufferUsageFlag
 
 	auto bufferAddress = device.getBufferAddress(deviceAddressInfo);
 
-	return GpuBuffer{ buffer, bufferMemory, bufferAddress };
+	return GpuBuffer{ buffer, bufferMemory, bufferAddress, size };
 }
 
 void se::GpuProgram::UploadToBuffer(se::GpuBuffer& buffer, void* data, vk::DeviceSize size)
@@ -208,12 +213,40 @@ void se::GpuProgram::UploadToBuffer(se::GpuBuffer& buffer, void* data, vk::Devic
 	commandBuffer.copyBuffer(stagingBuffer->buffer, buffer.buffer, 1, &copyRegion);
 	commandBuffer.end();
 
-	vk::SubmitInfo submitInfo = vk::SubmitInfo()
-		.setCommandBufferCount(1)
-		.setPCommandBuffers(&commandBuffer);
+	SubmitCommandsAndWait();
+}
 
-	queue.submit(submitInfo);
-	queue.waitIdle();
+void se::GpuProgram::DownloadFromBuffer(se::GpuBuffer& buffer, void* data, vk::DeviceSize size)
+{
+	if (!stagingBuffer) InitStagingBuffer();
+
+	vk::CommandBufferBeginInfo beginInfo = vk::CommandBufferBeginInfo()
+		.setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
+
+	commandBuffer.begin(beginInfo);
+	vk::BufferCopy copyRegion = vk::BufferCopy()
+		.setSrcOffset(0)
+		.setSize(size);
+	commandBuffer.copyBuffer(buffer.buffer, stagingBuffer->buffer, 1, &copyRegion);
+	commandBuffer.end();
+
+	SubmitCommandsAndWait();
+
+	void* mappedData = device.mapMemory(stagingBuffer->memory, 0, size);
+	std::memcpy(data, mappedData, size);
+	device.unmapMemory(stagingBuffer->memory);
+}
+
+void se::GpuProgram::ClearBuffer(se::GpuBuffer& buffer)
+{
+	vk::CommandBufferBeginInfo beginInfo = vk::CommandBufferBeginInfo()
+		.setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
+
+	commandBuffer.begin(beginInfo);
+	commandBuffer.fillBuffer(buffer.buffer, 0, buffer.size, 0);
+	commandBuffer.end();
+
+	SubmitCommandsAndWait();
 }
 
 void se::GpuProgram::FreeBuffer(se::GpuBuffer& buffer)
@@ -231,4 +264,25 @@ void se::GpuProgram::FreeBuffer(se::GpuBuffer& buffer)
 	}
 
 	buffer.address = 0;
+}
+
+void se::GpuProgram::WaitForFence()
+{
+	auto result = device.waitForFences(fence, VK_TRUE, UINT64_MAX);
+	if (result != vk::Result::eSuccess)
+	{
+		throw std::runtime_error("Failed to wait for fence");
+	}
+
+	device.resetFences(fence);
+}
+
+void se::GpuProgram::SubmitCommandsAndWait()
+{
+	vk::SubmitInfo submitInfo = vk::SubmitInfo()
+		.setCommandBufferCount(1)
+		.setPCommandBuffers(&commandBuffer);
+
+	queue.submit(submitInfo, fence);
+	WaitForFence();
 }

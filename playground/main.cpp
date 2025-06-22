@@ -1,17 +1,13 @@
 #include "raylib.h"
 #include "sound-engine/engine.h"
 
-//------------------------------------------------------------------------------------
-// Program main entry point
-//------------------------------------------------------------------------------------
 int main()
 {
-	// Initialization
-	//--------------------------------------------------------------------------------------
 	const int screenWidth = 800;
 	const int screenHeight = 450;
 
 	InitWindow(screenWidth, screenHeight, "raylib [models] example - first person maze");
+	InitAudioDevice();
 
 	auto engine = std::make_unique<se::Engine>();
 	engine->Initialize();
@@ -39,6 +35,13 @@ int main()
 
 	Vector3 mapPosition = { -16.0f, 0.0f, -8.0f };  // Set model position
 
+//	Wave wave = LoadWave("resources/music.mp3"); // Load maze music wave
+//	Sound sound = LoadSoundFromWave(wave); // Load maze music sound
+//	PlaySound(sound);
+
+	Music music = LoadMusicStream("resources/music.mp3");
+	PlayMusicStream(music);
+
 	DisableCursor();                // Limit cursor to relative movement inside the window
 
 	SetTargetFPS(60);               // Set our game to run at 60 frames-per-second
@@ -47,6 +50,8 @@ int main()
 	// Main game loop
 	while (!WindowShouldClose())    // Detect window close button or ESC key
 	{
+		UpdateMusicStream(music);
+
 		// Update
 		//----------------------------------------------------------------------------------
 		Vector3 oldCamPos = camera.position;    // Store old camera position

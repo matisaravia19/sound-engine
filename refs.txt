@@ -1,0 +1,3 @@
+https://www.dspguide.com/ch18.htm
+https://www.raylib.com/
+https://github.com/DTolm/VkFFT

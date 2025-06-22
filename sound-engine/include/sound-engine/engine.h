@@ -2,6 +2,7 @@
 
 #include <memory>
 #include "core.h"
+#include "auralizer.h"
 
 namespace se
 {
@@ -9,6 +10,7 @@ namespace se
 	{
 	private:
 		std::shared_ptr<GpuProgram> program;
+		std::unique_ptr<Auralizer> auralizer;
 
 	public:
 		Engine();

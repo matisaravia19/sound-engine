@@ -13,7 +13,7 @@ namespace se
 		std::vector<GpuMesh> gpuMeshes;
 
 	public:
-		ImpulseResponseMapper(std::shared_ptr<GpuProgram> program);
+		explicit ImpulseResponseMapper(std::shared_ptr<GpuProgram> program);
 		~ImpulseResponseMapper();
 
 		void UploadScene(const Scene& scene);

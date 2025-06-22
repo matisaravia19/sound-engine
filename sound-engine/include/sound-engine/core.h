@@ -20,7 +20,13 @@ namespace se
 		std::vector<Mesh> meshes;
 	};
 
+	struct ImpulseResponse
+	{
+		std::vector<float> data;
+		float sampleRate;
+	};
+
 	struct GpuBuffer;
 	struct GpuMesh;
-	class GpuProgram;
+	struct GpuProgram;
 }
