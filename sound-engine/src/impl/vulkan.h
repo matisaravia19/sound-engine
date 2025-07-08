@@ -26,7 +26,6 @@ namespace se
 		void InitStagingBuffer();
 
 		void WaitForFence();
-		void SubmitCommandsAndWait();
 
 	public:
 		vk::Instance instance;
@@ -42,8 +41,12 @@ namespace se
 		GpuBuffer GetBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags properties);
 		void UploadToBuffer(se::GpuBuffer& buffer, void* data, vk::DeviceSize size);
 		void DownloadFromBuffer(se::GpuBuffer& buffer, void* data, vk::DeviceSize size);
+		void CopyBuffer(se::GpuBuffer& src, se::GpuBuffer& dst, vk::DeviceSize size);
 		void ClearBuffer(se::GpuBuffer& buffer);
 		void FreeBuffer(GpuBuffer& buffer);
+
+		void BeginCommands();
+		void SubmitCommandsAndWait();
 
 		void Destroy();
 		~GpuProgram()

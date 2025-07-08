@@ -5,7 +5,7 @@
 se::Engine::Engine()
 {
 	program = std::make_shared<GpuProgram>();
-	auralizer = std::make_unique<Auralizer>(program);
+	auralizer = std::make_shared<Auralizer>(program);
 }
 
 se::Engine::~Engine() = default;
@@ -14,7 +14,6 @@ void se::Engine::Initialize()
 {
 	//glslang::InitializeProcess();
 	program->Init();
-	auralizer->TestInit();
 }
 
 void se::Engine::Shutdown()

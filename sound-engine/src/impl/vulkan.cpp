@@ -108,9 +108,7 @@ vk::CommandBuffer CreateCommandBuffer(vk::Device& device, vk::CommandPool& comma
 
 vk::Fence CreateFence(vk::Device& device)
 {
-	vk::FenceCreateInfo fenceInfo = vk::FenceCreateInfo()
-		.setFlags(vk::FenceCreateFlagBits::eSignaled);
-
+	vk::FenceCreateInfo fenceInfo = vk::FenceCreateInfo();
 	return device.createFence(fenceInfo);
 }
 
@@ -203,15 +201,12 @@ void se::GpuProgram::UploadToBuffer(se::GpuBuffer& buffer, void* data, vk::Devic
 	std::memcpy(mappedData, data, size);
 	device.unmapMemory(stagingBuffer->memory);
 
-	vk::CommandBufferBeginInfo beginInfo = vk::CommandBufferBeginInfo()
-		.setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
+	BeginCommands();
 
-	commandBuffer.begin(beginInfo);
 	vk::BufferCopy copyRegion = vk::BufferCopy()
 		.setDstOffset(0)
 		.setSize(size);
 	commandBuffer.copyBuffer(stagingBuffer->buffer, buffer.buffer, 1, &copyRegion);
-	commandBuffer.end();
 
 	SubmitCommandsAndWait();
 }
@@ -220,15 +215,12 @@ void se::GpuProgram::DownloadFromBuffer(se::GpuBuffer& buffer, void* data, vk::D
 {
 	if (!stagingBuffer) InitStagingBuffer();
 
-	vk::CommandBufferBeginInfo beginInfo = vk::CommandBufferBeginInfo()
-		.setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
+	BeginCommands();
 
-	commandBuffer.begin(beginInfo);
 	vk::BufferCopy copyRegion = vk::BufferCopy()
 		.setSrcOffset(0)
 		.setSize(size);
 	commandBuffer.copyBuffer(buffer.buffer, stagingBuffer->buffer, 1, &copyRegion);
-	commandBuffer.end();
 
 	SubmitCommandsAndWait();
 
@@ -237,15 +229,23 @@ void se::GpuProgram::DownloadFromBuffer(se::GpuBuffer& buffer, void* data, vk::D
 	device.unmapMemory(stagingBuffer->memory);
 }
 
+void se::GpuProgram::CopyBuffer(se::GpuBuffer& src, se::GpuBuffer& dst, vk::DeviceSize size)
+{
+	BeginCommands();
+
+	vk::BufferCopy copyRegion = vk::BufferCopy()
+		.setSrcOffset(0)
+		.setDstOffset(0)
+		.setSize(size);
+	commandBuffer.copyBuffer(src.buffer, dst.buffer, 1, &copyRegion);
+
+	SubmitCommandsAndWait();
+}
+
 void se::GpuProgram::ClearBuffer(se::GpuBuffer& buffer)
 {
-	vk::CommandBufferBeginInfo beginInfo = vk::CommandBufferBeginInfo()
-		.setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
-
-	commandBuffer.begin(beginInfo);
+	BeginCommands();
 	commandBuffer.fillBuffer(buffer.buffer, 0, buffer.size, 0);
-	commandBuffer.end();
-
 	SubmitCommandsAndWait();
 }
 
@@ -277,12 +277,24 @@ void se::GpuProgram::WaitForFence()
 	device.resetFences(fence);
 }
 
+void se::GpuProgram::BeginCommands()
+{
+	vk::CommandBufferBeginInfo beginInfo = vk::CommandBufferBeginInfo()
+		.setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
+
+	commandBuffer.begin(beginInfo);
+}
+
 void se::GpuProgram::SubmitCommandsAndWait()
 {
+	commandBuffer.end();
+
 	vk::SubmitInfo submitInfo = vk::SubmitInfo()
 		.setCommandBufferCount(1)
 		.setPCommandBuffers(&commandBuffer);
 
 	queue.submit(submitInfo, fence);
 	WaitForFence();
+
+	commandBuffer.reset();
 }

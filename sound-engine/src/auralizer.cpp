@@ -8,8 +8,8 @@
 #define IR_DELAY_MS 100
 #define IR_DECAY 0.5f
 #define IR_SIZE (SAMPLE_RATE * IR_DELAY_MS / 1000 + 1)
-#define FFT_SIZE (NextPow2(IR_SIZE))
-#define BLOCK 512
+#define BLOCK (SAMPLE_RATE * 10) // 10 seconds block
+#define FFT_SIZE (NextPow2(IR_SIZE + BLOCK + 1))
 #define TAIL (FFT_SIZE - BLOCK)
 
 constexpr static uint32_t NextPow2(uint32_t x)
@@ -21,9 +21,13 @@ constexpr static uint32_t NextPow2(uint32_t x)
 
 static std::vector<float> MakeSimpleIR()
 {
-	std::vector<float> ir(IR_SIZE, 0.0f);
+	std::vector<float> ir(8, 0.0f);
 	ir[0] = 1.0f;
-	ir.back() = IR_DECAY;
+	ir[4] = -1.0f;
+
+//	std::vector<float> ir(IR_SIZE, 0.0f);
+//	ir[0] = 1.0f;
+//	ir.back() = IR_DECAY;
 	return ir;
 }
 
@@ -41,7 +45,7 @@ se::Auralizer::Auralizer(std::shared_ptr<GpuProgram> gpuProgram)
 
 se::Auralizer::~Auralizer() = default;
 
-void se::Auralizer::TestInit()
+std::vector<float> se::Auralizer::TestInit(float* wave, size_t waveSize)
 {
 	vk::BufferUsageFlags bufferUsage = vk::BufferUsageFlagBits::eStorageBuffer |
 		vk::BufferUsageFlagBits::eTransferSrc |
@@ -60,7 +64,6 @@ void se::Auralizer::TestInit()
 	VkFFTConfiguration config = {};
 	config.FFTdim = 1;
 	config.size[0] = FFT_SIZE;
-	//config.performR2C = 1;
 	config.performConvolution = 1;
 	config.normalize = 1;
 
@@ -87,6 +90,7 @@ void se::Auralizer::TestInit()
 	initializeVkFFT(&fftApp->app, config);
 
 	VkFFTConfiguration kernelConfig = config;
+	kernelConfig.size[0] = 4;
 	kernelConfig.performConvolution = 0;
 	kernelConfig.kernelConvolution = 1;
 
@@ -95,12 +99,14 @@ void se::Auralizer::TestInit()
 	program->ClearBuffer(*blockGpuBuffer);
 
 	auto ir = MakeSimpleIR();
-	program->UploadToBuffer(*blockGpuBuffer, ir.data(), ir.size());
+	program->UploadToBuffer(*blockGpuBuffer, ir.data(), ir.size() * sizeof(float));
 
 	VkCommandBuffer commandBuffer = (VkCommandBuffer)program->commandBuffer;
 
 	VkFFTLaunchParams launchParams = {};
 	launchParams.commandBuffer = &commandBuffer;
+
+	program->BeginCommands();
 
 	auto result = VkFFTAppend(&fftApp->kernelApp, -1, &launchParams);
 	if (result != VKFFT_SUCCESS)
@@ -108,6 +114,42 @@ void se::Auralizer::TestInit()
 		std::cerr << "Failed to append kernel application: " << result << std::endl;
 		throw std::runtime_error("Failed to initialize FFT application");
 	}
+
+	program->SubmitCommandsAndWait();
+
+	std::vector<float> kernelHost(blockGpuBuffer->size / sizeof(float));
+	program->DownloadFromBuffer(*blockGpuBuffer, kernelHost.data(), blockGpuBuffer->size);
+
+	program->CopyBuffer(*blockGpuBuffer, *kernelGpuBuffer, kernelGpuBuffer->size);
+
+	program->ClearBuffer(*blockGpuBuffer);
+	program->UploadToBuffer(*blockGpuBuffer, wave, waveSize * sizeof(float));
+
+	program->BeginCommands();
+	result = VkFFTAppend(&fftApp->app, -1, &launchParams);
+	//result = VkFFTAppend(&fftApp->app, 1, &launchParams);
+	program->SubmitCommandsAndWait();
+
+	std::vector<float> blockHost(blockGpuBuffer->size);
+	program->DownloadFromBuffer(*blockGpuBuffer, blockHost.data(), blockGpuBuffer->size);
+
+//	bool allZero = true;
+//	for (const auto& value : kernelHost)
+//	{
+//		if (value != 0.0f)
+//		{
+//			allZero = false;
+//			break;
+//		}
+//	}
+//
+//	if (allZero)
+//	{
+//		std::cerr << "Kernel buffer is empty after initialization" << std::endl;
+//		throw std::runtime_error("Kernel buffer is empty");
+//	}
+
+	return blockHost;
 }
 
 void se::Auralizer::Test()

@@ -35,23 +35,60 @@ int main()
 
 	Vector3 mapPosition = { -16.0f, 0.0f, -8.0f };  // Set model position
 
-//	Wave wave = LoadWave("resources/music.mp3"); // Load maze music wave
 //	Sound sound = LoadSoundFromWave(wave); // Load maze music sound
 //	PlaySound(sound);
 
-	Music music = LoadMusicStream("resources/music.mp3");
-	PlayMusicStream(music);
+	auto auralizer = engine->GetAuralizer();
+	Wave wave = LoadWave("resources/music.mp3"); // Load maze music wave
+
+	// Convert wave to mono and keep only the first 10 seconds
+	if (wave.channels > 1)
+	{
+		float* originalData = (float*)wave.data;
+
+		wave.frameCount = (int)(wave.sampleRate * 10); // Limit to 10 seconds
+
+		wave.data = RL_MALLOC(wave.frameCount * sizeof(float));
+		for (int i = 0; i < wave.frameCount; i++)
+		{
+			((float*)wave.data)[i] = originalData[i * wave.channels]; // Take only the first channel
+		}
+
+		wave.channels = 1;
+
+		RL_FREE(originalData);
+	}
+
+	auto newSamples = auralizer->TestInit((float*)wave.data, wave.frameCount);
+//	Wave newWave = { 0 };
+//	newWave.sampleRate = wave.sampleRate;
+//	newWave.sampleSize = 32; // 32-bit float
+//	newWave.channels = 1; // Mono
+//	newWave.frameCount = (int)newSamples.size();
+//	newWave.data = RL_MALLOC(newWave.frameCount * sizeof(float));
+//	for (int i = 0; i < newWave.frameCount; i++)
+//	{
+//		if (newSamples[i] != newSamples[i]) // Check if the sample is NaN
+//		{
+//			newSamples[i] = 0; // Replace NaN with a valid value
+//		}
+//		((float*)newWave.data)[i] = newSamples[i];
+//	}
+
+//	SetAudioStreamBufferSizeDefault(512);
+//	AudioStream stream = LoadAudioStream(44100, 32, 1); // Load audio stream for music playback
 
 	DisableCursor();                // Limit cursor to relative movement inside the window
 
 	SetTargetFPS(60);               // Set our game to run at 60 frames-per-second
 	//--------------------------------------------------------------------------------------
 
+	Sound sound = LoadSoundFromWave(wave); // Load maze music sound
+	PlaySound(sound);
+
 	// Main game loop
 	while (!WindowShouldClose())    // Detect window close button or ESC key
 	{
-		UpdateMusicStream(music);
-
 		// Update
 		//----------------------------------------------------------------------------------
 		Vector3 oldCamPos = camera.position;    // Store old camera position

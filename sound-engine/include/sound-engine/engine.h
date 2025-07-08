@@ -10,7 +10,7 @@ namespace se
 	{
 	private:
 		std::shared_ptr<GpuProgram> program;
-		std::unique_ptr<Auralizer> auralizer;
+		std::shared_ptr<Auralizer> auralizer;
 
 	public:
 		Engine();
@@ -18,5 +18,14 @@ namespace se
 
 		void Initialize();
 		void Shutdown();
+
+		std::shared_ptr<GpuProgram> GetGpuProgram() const
+		{
+			return program;
+		}
+		std::shared_ptr<Auralizer> GetAuralizer()
+		{
+			return auralizer;
+		}
 	};
 }
