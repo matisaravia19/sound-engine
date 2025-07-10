@@ -7,9 +7,9 @@
 #define SAMPLE_RATE 44100
 #define IR_DELAY_MS 100
 #define IR_DECAY 0.5f
-#define IR_SIZE (SAMPLE_RATE * IR_DELAY_MS / 1000 + 1)
-#define BLOCK (SAMPLE_RATE * 10) // 10 seconds block
-#define FFT_SIZE (NextPow2(IR_SIZE + BLOCK + 1))
+#define IR_SIZE 4
+#define BLOCK 4
+#define FFT_SIZE (NextPow2(IR_SIZE + BLOCK - 1))
 #define TAIL (FFT_SIZE - BLOCK)
 
 constexpr static uint32_t NextPow2(uint32_t x)
@@ -21,7 +21,7 @@ constexpr static uint32_t NextPow2(uint32_t x)
 
 static std::vector<float> MakeSimpleIR()
 {
-	std::vector<float> ir(8, 0.0f);
+	std::vector<float> ir(IR_SIZE * 2, 0.0f);
 	ir[0] = 1.0f;
 	ir[4] = -1.0f;
 
@@ -52,28 +52,21 @@ std::vector<float> se::Auralizer::TestInit(float* wave, size_t waveSize)
 		vk::BufferUsageFlagBits::eTransferDst;
 
 	blockGpuBuffer = std::make_unique<GpuBuffer>(program->GetBuffer(
-		FFT_SIZE * sizeof(float),
+		FFT_SIZE * sizeof(float) * 2,
 		bufferUsage,
 		vk::MemoryPropertyFlagBits::eDeviceLocal));
 
 	kernelGpuBuffer = std::make_unique<GpuBuffer>(program->GetBuffer(
-		(FFT_SIZE / 2 + 1) * sizeof(float) * 2,
+		FFT_SIZE * sizeof(float) * 2,
 		bufferUsage,
 		vk::MemoryPropertyFlagBits::eDeviceLocal));
 
-	VkFFTConfiguration config = {};
-	config.FFTdim = 1;
-	config.size[0] = FFT_SIZE;
-	config.performConvolution = 1;
-	config.normalize = 1;
-
-	VkBuffer buffer = (VkBuffer)blockGpuBuffer->buffer;
-	config.buffer = &buffer;
-	config.bufferSize = &blockGpuBuffer->size;
-
-	VkBuffer kernelBuffer = (VkBuffer)kernelGpuBuffer->buffer;
-	config.kernel = &kernelBuffer;
-	config.kernelSize = &kernelGpuBuffer->size;
+	VkFFTConfiguration kernelConfig = {};
+	kernelConfig.FFTdim = 1;
+	kernelConfig.size[0] = FFT_SIZE;
+	kernelConfig.performConvolution = 0;
+	kernelConfig.kernelConvolution = 0;
+	kernelConfig.normalize = 1;
 
 	VkDevice device = (VkDevice)program->device;
 	VkPhysicalDevice physicalDevice = (VkPhysicalDevice)program->physicalDevice;
@@ -81,25 +74,23 @@ std::vector<float> se::Auralizer::TestInit(float* wave, size_t waveSize)
 	VkCommandPool commandPool = (VkCommandPool)program->commandPool;
 	VkFence fence = (VkFence)program->fence;
 
-	config.device = &device;
-	config.physicalDevice = &physicalDevice;
-	config.queue = &queue;
-	config.commandPool = &commandPool;
-	config.fence = &fence;
 
-	initializeVkFFT(&fftApp->app, config);
+	kernelConfig.device = &device;
+	kernelConfig.physicalDevice = &physicalDevice;
+	kernelConfig.queue = &queue;
+	kernelConfig.commandPool = &commandPool;
+	kernelConfig.fence = &fence;
 
-	VkFFTConfiguration kernelConfig = config;
-	kernelConfig.size[0] = 4;
-	kernelConfig.performConvolution = 0;
-	kernelConfig.kernelConvolution = 1;
+	VkBuffer kernelBuffer = (VkBuffer)kernelGpuBuffer->buffer;
+	kernelConfig.buffer = &kernelBuffer;
+	kernelConfig.bufferSize = &kernelGpuBuffer->size;
 
 	initializeVkFFT(&fftApp->kernelApp, kernelConfig);
 
-	program->ClearBuffer(*blockGpuBuffer);
-
 	auto ir = MakeSimpleIR();
-	program->UploadToBuffer(*blockGpuBuffer, ir.data(), ir.size() * sizeof(float));
+
+	program->ClearBuffer(*kernelGpuBuffer);
+	program->UploadToBuffer(*kernelGpuBuffer, ir.data(), ir.size() * sizeof(float));
 
 	VkCommandBuffer commandBuffer = (VkCommandBuffer)program->commandBuffer;
 
@@ -117,37 +108,33 @@ std::vector<float> se::Auralizer::TestInit(float* wave, size_t waveSize)
 
 	program->SubmitCommandsAndWait();
 
-	std::vector<float> kernelHost(blockGpuBuffer->size / sizeof(float));
-	program->DownloadFromBuffer(*blockGpuBuffer, kernelHost.data(), blockGpuBuffer->size);
+	std::vector<float> kernelHost(kernelGpuBuffer->size / sizeof(float));
+	program->DownloadFromBuffer(*kernelGpuBuffer, kernelHost.data(), kernelGpuBuffer->size);
 
-	program->CopyBuffer(*blockGpuBuffer, *kernelGpuBuffer, kernelGpuBuffer->size);
+	VkFFTConfiguration config = kernelConfig;
+	config.size[0] = FFT_SIZE;
+	config.performConvolution = 1;
+	config.kernelConvolution = 0;
+	//config.performR2C = 1;
+
+	VkBuffer buffer = (VkBuffer)blockGpuBuffer->buffer;
+	config.buffer = &buffer;
+	config.bufferSize = &blockGpuBuffer->size;
+
+	config.kernel = &kernelBuffer;
+	config.kernelSize = &kernelGpuBuffer->size;
+
+	initializeVkFFT(&fftApp->app, config);
 
 	program->ClearBuffer(*blockGpuBuffer);
-	program->UploadToBuffer(*blockGpuBuffer, wave, waveSize * sizeof(float));
+	program->UploadToBuffer(*blockGpuBuffer, wave, waveSize * 2 * sizeof(float));
 
 	program->BeginCommands();
 	result = VkFFTAppend(&fftApp->app, -1, &launchParams);
-	//result = VkFFTAppend(&fftApp->app, 1, &launchParams);
 	program->SubmitCommandsAndWait();
 
-	std::vector<float> blockHost(blockGpuBuffer->size);
+	std::vector<float> blockHost(blockGpuBuffer->size / sizeof(float));
 	program->DownloadFromBuffer(*blockGpuBuffer, blockHost.data(), blockGpuBuffer->size);
-
-//	bool allZero = true;
-//	for (const auto& value : kernelHost)
-//	{
-//		if (value != 0.0f)
-//		{
-//			allZero = false;
-//			break;
-//		}
-//	}
-//
-//	if (allZero)
-//	{
-//		std::cerr << "Kernel buffer is empty after initialization" << std::endl;
-//		throw std::runtime_error("Kernel buffer is empty");
-//	}
 
 	return blockHost;
 }

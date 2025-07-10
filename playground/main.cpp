@@ -59,7 +59,9 @@ int main()
 		RL_FREE(originalData);
 	}
 
-	auto newSamples = auralizer->TestInit((float*)wave.data, wave.frameCount);
+	//auto newSamples = auralizer->TestInit((float*)wave.data, wave.frameCount);
+	float testSamples[] = { 1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f };
+	auto newSamples = auralizer->TestInit(testSamples, 4);
 //	Wave newWave = { 0 };
 //	newWave.sampleRate = wave.sampleRate;
 //	newWave.sampleSize = 32; // 32-bit float
