@@ -20,6 +20,7 @@ namespace se
 		explicit Auralizer(std::shared_ptr<GpuProgram> gpuProgram);
 		~Auralizer();
 
+		void Init();
 		std::vector<float> TestInit(float* wave, size_t waveSize);
 		void Test();
 	};

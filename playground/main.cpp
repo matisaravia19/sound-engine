@@ -41,6 +41,18 @@ int main()
 	auto auralizer = engine->GetAuralizer();
 	Wave wave = LoadWave("resources/music.mp3"); // Load maze music wave
 
+	// Let's test with a wave made up of just 1.0s to see if the auralizer works
+	int waveSize = 44100 * 0.1; // 0.1 seconds of audio at 44100 Hz
+	float* testWave = new float[waveSize];
+	for (int i = 0; i < waveSize; i++)
+	{
+		testWave[i] = 0.0f; // Fill with 1.0s
+	}
+
+	testWave[0] = 1.0f; // Set the first sample to 1.0 to simulate a sound
+
+	auto transformedWave = auralizer->TestInit(testWave, waveSize);
+
 	// Convert wave to mono and keep only the first 10 seconds
 	if (wave.channels > 1)
 	{
@@ -59,23 +71,23 @@ int main()
 		RL_FREE(originalData);
 	}
 
-	//auto newSamples = auralizer->TestInit((float*)wave.data, wave.frameCount);
-	float testSamples[] = { 1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f };
-	auto newSamples = auralizer->TestInit(testSamples, 4);
-//	Wave newWave = { 0 };
-//	newWave.sampleRate = wave.sampleRate;
-//	newWave.sampleSize = 32; // 32-bit float
-//	newWave.channels = 1; // Mono
-//	newWave.frameCount = (int)newSamples.size();
-//	newWave.data = RL_MALLOC(newWave.frameCount * sizeof(float));
-//	for (int i = 0; i < newWave.frameCount; i++)
-//	{
-//		if (newSamples[i] != newSamples[i]) // Check if the sample is NaN
-//		{
-//			newSamples[i] = 0; // Replace NaN with a valid value
-//		}
-//		((float*)newWave.data)[i] = newSamples[i];
-//	}
+//	float testSamples[] = { 1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f };
+//	auto newSamples = auralizer->TestInit(testSamples, 4);
+	auto newSamples = auralizer->TestInit((float*)wave.data, wave.frameCount);
+	Wave newWave = { 0 };
+	newWave.sampleRate = wave.sampleRate;
+	newWave.sampleSize = 32; // 32-bit float
+	newWave.channels = 1; // Mono
+	newWave.frameCount = (int)newSamples.size();
+	newWave.data = RL_MALLOC(newWave.frameCount * sizeof(float));
+	for (int i = 0; i < newWave.frameCount; i++)
+	{
+		if (newSamples[i] != newSamples[i]) // Check if the sample is NaN
+		{
+			newSamples[i] = 0; // Replace NaN with a valid value
+		}
+		((float*)newWave.data)[i] = newSamples[i];
+	}
 
 //	SetAudioStreamBufferSizeDefault(512);
 //	AudioStream stream = LoadAudioStream(44100, 32, 1); // Load audio stream for music playback
@@ -85,7 +97,7 @@ int main()
 	SetTargetFPS(60);               // Set our game to run at 60 frames-per-second
 	//--------------------------------------------------------------------------------------
 
-	Sound sound = LoadSoundFromWave(wave); // Load maze music sound
+	Sound sound = LoadSoundFromWave(newWave); // Load maze music sound
 	PlaySound(sound);
 
 	// Main game loop

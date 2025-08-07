@@ -6,7 +6,8 @@
 
 #define SAMPLE_RATE 44100
 #define IR_DELAY_MS 100
-#define IR_DECAY 0.5f
+#define IR_DECAY 1.0f
+//#define IR_SIZE (SAMPLE_RATE * IR_DELAY_MS / 1000)
 #define IR_SIZE 4
 #define BLOCK 4
 #define FFT_SIZE (NextPow2(IR_SIZE + BLOCK - 1))
@@ -22,12 +23,18 @@ constexpr static uint32_t NextPow2(uint32_t x)
 static std::vector<float> MakeSimpleIR()
 {
 	std::vector<float> ir(IR_SIZE * 2, 0.0f);
-	ir[0] = 1.0f;
-	ir[4] = -1.0f;
-
-//	std::vector<float> ir(IR_SIZE, 0.0f);
 //	ir[0] = 1.0f;
-//	ir.back() = IR_DECAY;
+//	ir[10] = 0.8f;
+//	ir[20] = 0.6f;
+//	ir[30] = 0.4f;
+//	ir[40] = 0.2f;
+//	ir[IR_SIZE * 2 - 2] = IR_DECAY;
+
+	ir[0] = 1.0f; // Impulse at the start
+	ir[2] = 0.8f; // Decay
+	ir[4] = 0.6f; // Decay
+	ir[6] = 0.4f; // Decay
+
 	return ir;
 }
 
@@ -45,27 +52,51 @@ se::Auralizer::Auralizer(std::shared_ptr<GpuProgram> gpuProgram)
 
 se::Auralizer::~Auralizer() = default;
 
+static float* RealToComplex(const float* data, size_t size)
+{
+	float* complexData = new float[size * 2];
+	for (size_t i = 0; i < size; ++i)
+	{
+		complexData[i * 2] = data[i];
+		complexData[i * 2 + 1] = 0.0f;
+	}
+	return complexData;
+}
+
+static std::vector<float> ComplexToReal(const std::vector<float> data)
+{
+	std::vector<float> realData(data.size() / 2);
+	for (size_t i = 0; i < data.size() / 2; ++i)
+	{
+		realData[i] = data[i * 2];
+	}
+	return realData;
+}
+
 std::vector<float> se::Auralizer::TestInit(float* wave, size_t waveSize)
 {
 	vk::BufferUsageFlags bufferUsage = vk::BufferUsageFlagBits::eStorageBuffer |
 		vk::BufferUsageFlagBits::eTransferSrc |
 		vk::BufferUsageFlagBits::eTransferDst;
 
+	size_t fftSize = NextPow2(waveSize + IR_SIZE - 1);
+	float* complexWave = RealToComplex(wave, waveSize);
+
 	blockGpuBuffer = std::make_unique<GpuBuffer>(program->GetBuffer(
-		FFT_SIZE * sizeof(float) * 2,
+		fftSize * sizeof(float) * 2,
 		bufferUsage,
 		vk::MemoryPropertyFlagBits::eDeviceLocal));
 
 	kernelGpuBuffer = std::make_unique<GpuBuffer>(program->GetBuffer(
-		FFT_SIZE * sizeof(float) * 2,
+		fftSize * sizeof(float) * 2,
 		bufferUsage,
 		vk::MemoryPropertyFlagBits::eDeviceLocal));
 
 	VkFFTConfiguration kernelConfig = {};
 	kernelConfig.FFTdim = 1;
-	kernelConfig.size[0] = FFT_SIZE;
+	kernelConfig.size[0] = fftSize;
 	kernelConfig.performConvolution = 0;
-	kernelConfig.kernelConvolution = 0;
+	kernelConfig.kernelConvolution = 1;
 	kernelConfig.normalize = 1;
 
 	VkDevice device = (VkDevice)program->device;
@@ -73,7 +104,6 @@ std::vector<float> se::Auralizer::TestInit(float* wave, size_t waveSize)
 	VkQueue queue = (VkQueue)program->queue;
 	VkCommandPool commandPool = (VkCommandPool)program->commandPool;
 	VkFence fence = (VkFence)program->fence;
-
 
 	kernelConfig.device = &device;
 	kernelConfig.physicalDevice = &physicalDevice;
@@ -112,7 +142,7 @@ std::vector<float> se::Auralizer::TestInit(float* wave, size_t waveSize)
 	program->DownloadFromBuffer(*kernelGpuBuffer, kernelHost.data(), kernelGpuBuffer->size);
 
 	VkFFTConfiguration config = kernelConfig;
-	config.size[0] = FFT_SIZE;
+	config.size[0] = fftSize;
 	config.performConvolution = 1;
 	config.kernelConvolution = 0;
 	//config.performR2C = 1;
@@ -127,7 +157,7 @@ std::vector<float> se::Auralizer::TestInit(float* wave, size_t waveSize)
 	initializeVkFFT(&fftApp->app, config);
 
 	program->ClearBuffer(*blockGpuBuffer);
-	program->UploadToBuffer(*blockGpuBuffer, wave, waveSize * 2 * sizeof(float));
+	program->UploadToBuffer(*blockGpuBuffer, complexWave, waveSize * 2 * sizeof(float));
 
 	program->BeginCommands();
 	result = VkFFTAppend(&fftApp->app, -1, &launchParams);
@@ -136,7 +166,9 @@ std::vector<float> se::Auralizer::TestInit(float* wave, size_t waveSize)
 	std::vector<float> blockHost(blockGpuBuffer->size / sizeof(float));
 	program->DownloadFromBuffer(*blockGpuBuffer, blockHost.data(), blockGpuBuffer->size);
 
-	return blockHost;
+	delete[] complexWave;
+
+	return ComplexToReal(blockHost);
 }
 
 void se::Auralizer::Test()

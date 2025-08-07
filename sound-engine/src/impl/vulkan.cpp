@@ -9,7 +9,7 @@ const std::vector<const char*> DEVICE_EXTENSIONS = {
 	VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME
 };
 
-const uint64_t STAGING_BUFFER_SIZE = 1024 * 1024 * 1; // 1 MB
+const uint64_t STAGING_BUFFER_SIZE = 1024 * 1024 * 10; // 10 MB
 
 vk::Instance CreateVulkanInstance()
 {
