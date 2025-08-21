@@ -51,7 +51,8 @@ int main()
 
 	testWave[0] = 1.0f; // Set the first sample to 1.0 to simulate a sound
 
-	auto transformedWave = auralizer->TestInit(testWave, waveSize);
+	auralizer->Init();
+	auto transformedWave = auralizer->Process(testWave, waveSize);
 
 	// Convert wave to mono and keep only the first 10 seconds
 	if (wave.channels > 1)
@@ -73,7 +74,7 @@ int main()
 
 //	float testSamples[] = { 1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f };
 //	auto newSamples = auralizer->TestInit(testSamples, 4);
-	auto newSamples = auralizer->TestInit((float*)wave.data, wave.frameCount);
+	auto newSamples = auralizer->Process((float*)wave.data, wave.frameCount);
 	Wave newWave = { 0 };
 	newWave.sampleRate = wave.sampleRate;
 	newWave.sampleSize = 32; // 32-bit float

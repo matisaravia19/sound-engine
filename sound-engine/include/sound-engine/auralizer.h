@@ -21,6 +21,8 @@ namespace se
 		~Auralizer();
 
 		void Init();
+		std::vector<float> Process(float* wave, size_t waveSize);
+
 		std::vector<float> TestInit(float* wave, size_t waveSize);
 		void Test();
 	};
