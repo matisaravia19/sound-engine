@@ -29,4 +29,5 @@ namespace se
 	struct GpuBuffer;
 	struct GpuMesh;
 	struct GpuProgram;
+	struct RaytracingProgram;
 }

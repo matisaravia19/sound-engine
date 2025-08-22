@@ -129,6 +129,13 @@ void se::GpuProgram::Init()
 	instance = CreateVulkanInstance();
 	physicalDevice = GetPhysicalDevice(instance);
 
+	accelerationStructureProperties = physicalDevice
+		.getProperties2<vk::PhysicalDeviceProperties2, vk::PhysicalDeviceAccelerationStructurePropertiesKHR>()
+		.get<vk::PhysicalDeviceAccelerationStructurePropertiesKHR>();
+	raytracingProperties = physicalDevice
+		.getProperties2<vk::PhysicalDeviceProperties2, vk::PhysicalDeviceRayTracingPipelinePropertiesKHR>()
+		.get<vk::PhysicalDeviceRayTracingPipelinePropertiesKHR>();
+
 	uint32_t queueFamilyIndex = GetQueueFamilyIndex(physicalDevice);
 
 	device = CreateLogicalDevice(physicalDevice, queueFamilyIndex);
@@ -297,4 +304,363 @@ void se::GpuProgram::SubmitCommandsAndWait()
 	WaitForFence();
 
 	commandBuffer.reset();
+}
+
+se::AccelerationStructure se::GpuProgram::CreateBottomLevelAccelerationStructure(const std::vector<GpuMesh>& meshes)
+{
+	std::vector<vk::AccelerationStructureGeometryKHR> geometries;
+	std::vector<vk::AccelerationStructureBuildRangeInfoKHR> buildRangeInfos;
+
+	for (const auto& mesh : meshes)
+	{
+		// Setup vertex data
+		auto vertexData = vk::AccelerationStructureGeometryTrianglesDataKHR()
+			.setVertexFormat(vk::Format::eR32G32B32Sfloat)
+			.setVertexData(mesh.vertexBuffer.address)
+			.setVertexStride(sizeof(se::Vertex))
+			.setMaxVertex(static_cast<uint32_t>(mesh.vertexBuffer.size / sizeof(se::Vertex) - 1))
+			.setIndexType(vk::IndexType::eUint32)
+			.setIndexData(mesh.indexBuffer.address);
+
+		auto geometry = vk::AccelerationStructureGeometryKHR()
+			.setGeometryType(vk::GeometryTypeKHR::eTriangles)
+			.setGeometry(vk::AccelerationStructureGeometryDataKHR().setTriangles(vertexData))
+			.setFlags(vk::GeometryFlagBitsKHR::eOpaque);
+
+		geometries.push_back(geometry);
+
+		auto buildRangeInfo = vk::AccelerationStructureBuildRangeInfoKHR()
+			.setPrimitiveCount(static_cast<uint32_t>(mesh.indexBuffer.size / sizeof(uint32_t) / 3))
+			.setPrimitiveOffset(0)
+			.setFirstVertex(0)
+			.setTransformOffset(0);
+
+		buildRangeInfos.push_back(buildRangeInfo);
+	}
+
+	// Get size requirements
+	auto buildGeometryInfo = vk::AccelerationStructureBuildGeometryInfoKHR()
+		.setType(vk::AccelerationStructureTypeKHR::eBottomLevel)
+		.setFlags(vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace)
+		.setGeometryCount(static_cast<uint32_t>(geometries.size()))
+		.setPGeometries(geometries.data());
+
+	std::vector<uint32_t> maxPrimitiveCounts;
+	for (const auto& info : buildRangeInfos)
+	{
+		maxPrimitiveCounts.push_back(info.primitiveCount);
+	}
+
+	auto sizeInfo = device.getAccelerationStructureBuildSizesKHR(
+		vk::AccelerationStructureBuildTypeKHR::eDevice,
+		buildGeometryInfo,
+		maxPrimitiveCounts);
+
+	// Create acceleration structure buffer
+	auto asBuffer = GetBuffer(
+		sizeInfo.accelerationStructureSize,
+		vk::BufferUsageFlagBits::eAccelerationStructureStorageKHR | vk::BufferUsageFlagBits::eShaderDeviceAddress,
+		vk::MemoryPropertyFlagBits::eDeviceLocal);
+
+	// Create acceleration structure
+	auto createInfo = vk::AccelerationStructureCreateInfoKHR()
+		.setBuffer(asBuffer.buffer)
+		.setSize(sizeInfo.accelerationStructureSize)
+		.setType(vk::AccelerationStructureTypeKHR::eBottomLevel);
+
+	auto as = device.createAccelerationStructureKHR(createInfo);
+
+	// Get acceleration structure address
+	auto addressInfo = vk::AccelerationStructureDeviceAddressInfoKHR()
+		.setAccelerationStructure(as);
+	auto asAddress = device.getAccelerationStructureAddressKHR(addressInfo);
+
+	// Create scratch buffer
+	auto scratchBuffer = GetBuffer(
+		sizeInfo.buildScratchSize,
+		vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress,
+		vk::MemoryPropertyFlagBits::eDeviceLocal);
+
+	// Build acceleration structure
+	buildGeometryInfo.setDstAccelerationStructure(as)
+		.setScratchData(scratchBuffer.address);
+
+	const vk::AccelerationStructureBuildRangeInfoKHR* buildRangeInfoPtr = buildRangeInfos.data();
+
+	BeginCommands();
+	commandBuffer.buildAccelerationStructuresKHR(1, &buildGeometryInfo, &buildRangeInfoPtr);
+
+	// Add memory barrier
+	auto barrier = vk::MemoryBarrier()
+		.setSrcAccessMask(vk::AccessFlagBits::eAccelerationStructureWriteKHR)
+		.setDstAccessMask(vk::AccessFlagBits::eAccelerationStructureReadKHR);
+
+	commandBuffer.pipelineBarrier(
+		vk::PipelineStageFlagBits::eAccelerationStructureBuildKHR,
+		vk::PipelineStageFlagBits::eRayTracingShaderKHR,
+		{}, 1, &barrier, 0, nullptr, 0, nullptr);
+
+	SubmitCommandsAndWait();
+
+	// Clean up scratch buffer
+	FreeBuffer(scratchBuffer);
+
+	return AccelerationStructure{ as, asBuffer, asAddress };
+}
+
+se::AccelerationStructure se::GpuProgram::CreateTopLevelAccelerationStructure(const std::vector<AccelerationStructure>& bottomLevelAS)
+{
+	// Create instances buffer
+	std::vector<vk::AccelerationStructureInstanceKHR> instances;
+
+	for (size_t i = 0; i < bottomLevelAS.size(); ++i)
+	{
+		// Identity matrix for transform
+		std::array<std::array<float, 4>, 3> transform = {{
+															 {{ 1.0f, 0.0f, 0.0f, 0.0f }},
+															 {{ 0.0f, 1.0f, 0.0f, 0.0f }},
+															 {{ 0.0f, 0.0f, 1.0f, 0.0f }}
+														 }};
+
+		auto instance = vk::AccelerationStructureInstanceKHR()
+			.setTransform(reinterpret_cast<vk::TransformMatrixKHR&>(transform))
+			.setInstanceCustomIndex(static_cast<uint32_t>(i))
+			.setMask(0xFF)
+			.setInstanceShaderBindingTableRecordOffset(0)
+			.setFlags(vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable)
+			.setAccelerationStructureReference(bottomLevelAS[i].address);
+
+		instances.push_back(instance);
+	}
+
+	auto instancesBuffer = GetBuffer(
+		instances.size() * sizeof(vk::AccelerationStructureInstanceKHR),
+		vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR | vk::BufferUsageFlagBits::eShaderDeviceAddress,
+		vk::MemoryPropertyFlagBits::eDeviceLocal);
+
+	UploadToBuffer(instancesBuffer, instances.data(), instances.size() * sizeof(vk::AccelerationStructureInstanceKHR));
+
+	// Setup geometry
+	auto instancesData = vk::AccelerationStructureGeometryInstancesDataKHR()
+		.setArrayOfPointers(false)
+		.setData(instancesBuffer.address);
+
+	auto geometry = vk::AccelerationStructureGeometryKHR()
+		.setGeometryType(vk::GeometryTypeKHR::eInstances)
+		.setGeometry(vk::AccelerationStructureGeometryDataKHR().setInstances(instancesData));
+
+	// Get size requirements
+	auto buildGeometryInfo = vk::AccelerationStructureBuildGeometryInfoKHR()
+		.setType(vk::AccelerationStructureTypeKHR::eTopLevel)
+		.setFlags(vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace)
+		.setGeometryCount(1)
+		.setPGeometries(&geometry);
+
+	uint32_t instanceCount = static_cast<uint32_t>(instances.size());
+	auto sizeInfo = device.getAccelerationStructureBuildSizesKHR(
+		vk::AccelerationStructureBuildTypeKHR::eDevice,
+		buildGeometryInfo,
+		instanceCount);
+
+	// Create acceleration structure buffer
+	auto asBuffer = GetBuffer(
+		sizeInfo.accelerationStructureSize,
+		vk::BufferUsageFlagBits::eAccelerationStructureStorageKHR | vk::BufferUsageFlagBits::eShaderDeviceAddress,
+		vk::MemoryPropertyFlagBits::eDeviceLocal);
+
+	// Create acceleration structure
+	auto createInfo = vk::AccelerationStructureCreateInfoKHR()
+		.setBuffer(asBuffer.buffer)
+		.setSize(sizeInfo.accelerationStructureSize)
+		.setType(vk::AccelerationStructureTypeKHR::eTopLevel);
+
+	auto as = device.createAccelerationStructureKHR(createInfo);
+
+	// Get acceleration structure address
+	auto addressInfo = vk::AccelerationStructureDeviceAddressInfoKHR()
+		.setAccelerationStructure(as);
+	auto asAddress = device.getAccelerationStructureAddressKHR(addressInfo);
+
+	// Create scratch buffer
+	auto scratchBuffer = GetBuffer(
+		sizeInfo.buildScratchSize,
+		vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress,
+		vk::MemoryPropertyFlagBits::eDeviceLocal);
+
+	// Build acceleration structure
+	buildGeometryInfo.setDstAccelerationStructure(as)
+		.setScratchData(scratchBuffer.address);
+
+	auto buildRangeInfo = vk::AccelerationStructureBuildRangeInfoKHR()
+		.setPrimitiveCount(instanceCount)
+		.setPrimitiveOffset(0)
+		.setFirstVertex(0)
+		.setTransformOffset(0);
+
+	const vk::AccelerationStructureBuildRangeInfoKHR* buildRangeInfoPtr = &buildRangeInfo;
+
+	BeginCommands();
+	commandBuffer.buildAccelerationStructuresKHR(1, &buildGeometryInfo, &buildRangeInfoPtr);
+
+	// Add memory barrier
+	auto barrier = vk::MemoryBarrier()
+		.setSrcAccessMask(vk::AccessFlagBits::eAccelerationStructureWriteKHR)
+		.setDstAccessMask(vk::AccessFlagBits::eAccelerationStructureReadKHR);
+
+	commandBuffer.pipelineBarrier(
+		vk::PipelineStageFlagBits::eAccelerationStructureBuildKHR,
+		vk::PipelineStageFlagBits::eRayTracingShaderKHR,
+		{}, 1, &barrier, 0, nullptr, 0, nullptr);
+
+	SubmitCommandsAndWait();
+
+	// Clean up
+	FreeBuffer(scratchBuffer);
+	FreeBuffer(instancesBuffer);
+
+	return AccelerationStructure{ as, asBuffer, asAddress };
+}
+
+void se::GpuProgram::DestroyAccelerationStructure(AccelerationStructure& as)
+{
+	if (as.handle)
+	{
+		device.destroyAccelerationStructureKHR(as.handle);
+		as.handle = VK_NULL_HANDLE;
+	}
+	FreeBuffer(as.buffer);
+	as.address = 0;
+}
+
+std::vector<uint32_t> se::GpuProgram::CompileShader(const std::string& source, const std::string& filename, vk::ShaderStageFlagBits stage)
+{
+	// This is a simplified version - in practice you'd use glslang to compile
+	// For now, we'll assume pre-compiled SPIR-V binaries
+	throw std::runtime_error("Shader compilation not implemented - use pre-compiled SPIR-V");
+}
+
+se::RaytracingPipeline se::GpuProgram::CreateRaytracingPipeline()
+{
+	RaytracingPipeline pipeline{};
+
+	// Create descriptor set layout
+	std::vector<vk::DescriptorSetLayoutBinding> bindings = {
+		vk::DescriptorSetLayoutBinding()
+			.setBinding(0)
+			.setDescriptorType(vk::DescriptorType::eAccelerationStructureKHR)
+			.setDescriptorCount(1)
+			.setStageFlags(vk::ShaderStageFlagBits::eRaygenKHR),
+		vk::DescriptorSetLayoutBinding()
+			.setBinding(1)
+			.setDescriptorType(vk::DescriptorType::eStorageImage)
+			.setDescriptorCount(1)
+			.setStageFlags(vk::ShaderStageFlagBits::eRaygenKHR)
+	};
+
+	auto layoutInfo = vk::DescriptorSetLayoutCreateInfo()
+		.setBindingCount(static_cast<uint32_t>(bindings.size()))
+		.setPBindings(bindings.data());
+
+	pipeline.descriptorSetLayout = device.createDescriptorSetLayout(layoutInfo);
+
+	// Create pipeline layout
+	auto pipelineLayoutInfo = vk::PipelineLayoutCreateInfo()
+		.setSetLayoutCount(1)
+		.setPSetLayouts(&pipeline.descriptorSetLayout);
+
+	pipeline.layout = device.createPipelineLayout(pipelineLayoutInfo);
+
+	// For now, we'll create a minimal pipeline without shaders
+	// In practice, you'd load and compile the shader SPIR-V here
+
+	// Create descriptor pool
+	std::vector<vk::DescriptorPoolSize> poolSizes = {
+		vk::DescriptorPoolSize()
+			.setType(vk::DescriptorType::eAccelerationStructureKHR)
+			.setDescriptorCount(1),
+		vk::DescriptorPoolSize()
+			.setType(vk::DescriptorType::eStorageImage)
+			.setDescriptorCount(1)
+	};
+
+	auto poolInfo = vk::DescriptorPoolCreateInfo()
+		.setPoolSizeCount(static_cast<uint32_t>(poolSizes.size()))
+		.setPPoolSizes(poolSizes.data())
+		.setMaxSets(1);
+
+	pipeline.descriptorPool = device.createDescriptorPool(poolInfo);
+
+	// Allocate descriptor set
+	auto allocInfo = vk::DescriptorSetAllocateInfo()
+		.setDescriptorPool(pipeline.descriptorPool)
+		.setDescriptorSetCount(1)
+		.setPSetLayouts(&pipeline.descriptorSetLayout);
+
+	auto descriptorSets = device.allocateDescriptorSets(allocInfo);
+	pipeline.descriptorSet = descriptorSets[0];
+
+	return pipeline;
+}
+
+void se::GpuProgram::DestroyRaytracingPipeline(RaytracingPipeline& pipeline)
+{
+	if (pipeline.pipeline)
+	{
+		device.destroyPipeline(pipeline.pipeline);
+		pipeline.pipeline = VK_NULL_HANDLE;
+	}
+
+	if (pipeline.layout)
+	{
+		device.destroyPipelineLayout(pipeline.layout);
+		pipeline.layout = VK_NULL_HANDLE;
+	}
+
+	if (pipeline.descriptorSetLayout)
+	{
+		device.destroyDescriptorSetLayout(pipeline.descriptorSetLayout);
+		pipeline.descriptorSetLayout = VK_NULL_HANDLE;
+	}
+
+	if (pipeline.descriptorPool)
+	{
+		device.destroyDescriptorPool(pipeline.descriptorPool);
+		pipeline.descriptorPool = VK_NULL_HANDLE;
+	}
+
+	FreeBuffer(pipeline.raygenShaderBindingTable);
+	FreeBuffer(pipeline.missShaderBindingTable);
+	FreeBuffer(pipeline.hitShaderBindingTable);
+}
+
+se::RaytracingProgram::RaytracingProgram(std::shared_ptr<GpuProgram> gpuProgram)
+{
+	this->gpuProgram = std::move(gpuProgram);
+}
+
+void se::RaytracingProgram::Init(const std::vector<GpuMesh>& meshes)
+{
+	if (meshes.empty()) throw std::runtime_error("No meshes provided for raytracing");
+
+	for (const auto& mesh : meshes)
+	{
+		bottomLevelAS.push_back(gpuProgram->CreateBottomLevelAccelerationStructure({ mesh }));
+	}
+
+	topLevelAS = gpuProgram->CreateTopLevelAccelerationStructure(bottomLevelAS);
+	rtPipeline = gpuProgram->CreateRaytracingPipeline();
+
+	// Setup shader binding tables (SBT)
+	// For simplicity, we'll assume the SBT is already set up in the shaders
+}
+
+void se::RaytracingProgram::Destroy()
+{
+	gpuProgram->DestroyRaytracingPipeline(rtPipeline);
+
+	gpuProgram->DestroyAccelerationStructure(topLevelAS);
+	for (auto& blas : bottomLevelAS)
+	{
+		gpuProgram->DestroyAccelerationStructure(blas);
+	}
 }

@@ -1,5 +1,6 @@
 #include "raylib.h"
 #include "sound-engine/engine.h"
+#include "sound-engine/impulse.h"
 
 int main()
 {
@@ -11,6 +12,46 @@ int main()
 
 	auto engine = std::make_unique<se::Engine>();
 	engine->Initialize();
+
+	// Test impulse response mapping with raytracing
+	auto impulseMapper = std::make_unique<se::ImpulseResponseMapper>(engine->GetGpuProgram());
+	
+	// Create a simple test scene (a box)
+	se::Scene testScene;
+	se::Mesh testMesh;
+	
+	// Create a simple cube mesh
+	testMesh.vertices = {
+		{{-1.0f, -1.0f, -1.0f}}, {{1.0f, -1.0f, -1.0f}}, {{1.0f, 1.0f, -1.0f}}, {{-1.0f, 1.0f, -1.0f}}, // front
+		{{-1.0f, -1.0f, 1.0f}}, {{1.0f, -1.0f, 1.0f}}, {{1.0f, 1.0f, 1.0f}}, {{-1.0f, 1.0f, 1.0f}}   // back
+	};
+	
+	testMesh.indices = {
+		0, 1, 2, 2, 3, 0, // front
+		1, 5, 6, 6, 2, 1, // right
+		7, 6, 5, 5, 4, 7, // back
+		4, 0, 3, 3, 7, 4, // left
+		4, 5, 1, 1, 0, 4, // bottom
+		3, 2, 6, 6, 7, 3  // top
+	};
+	
+	testScene.meshes.push_back(testMesh);
+	
+	try {
+		impulseMapper->UploadScene(testScene);
+		impulseMapper->InitializeRaytracing();
+		
+		// Test impulse response generation
+		float sourcePos[3] = {0.0f, 0.0f, 0.0f};
+		float listenerPos[3] = {2.0f, 0.0f, 0.0f};
+		auto impulseResponse = impulseMapper->GenerateImpulseResponse(sourcePos, listenerPos);
+		
+		printf("Generated impulse response with %zu samples at %.0f Hz\n", 
+			impulseResponse.data.size(), impulseResponse.sampleRate);
+	}
+	catch (const std::exception& e) {
+		printf("Error setting up impulse response mapping: %s\n", e.what());
+	}
 
 	// Define the camera to look into our 3d world
 	Camera camera = { 0 };
