@@ -1,6 +1,13 @@
 #pragma once
 
 #include "sound-engine/core.h"
+
+// Use Vulkan-Hpp dynamic dispatch so extension entry points
+// (e.g., ray tracing KHR) are loaded at runtime instead of
+// requiring static linker symbols.
+#ifndef VULKAN_HPP_DISPATCH_LOADER_DYNAMIC
+#define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
+#endif
 #include <vulkan/vulkan.hpp>
 
 namespace se

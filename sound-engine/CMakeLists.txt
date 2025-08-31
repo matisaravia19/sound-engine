@@ -14,7 +14,7 @@ set(SOURCES
 add_library(${PROJECT_NAME} STATIC ${SOURCES})
 
 find_package(Vulkan REQUIRED)
-target_compile_definitions(${PROJECT_NAME} PRIVATE -DVK_API_VERSION_1_3)
+target_compile_definitions(${PROJECT_NAME} PRIVATE -DVK_API_VERSION_1_3 -DVULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1)
 target_link_libraries(${PROJECT_NAME} PRIVATE Vulkan::Vulkan)
 
 target_include_directories(${PROJECT_NAME} PRIVATE ../lib/VkFFT/vkFFT)

@@ -1,5 +1,8 @@
 #include "vulkan.h"
 
+// Define storage for Vulkan-Hpp's default dynamic dispatcher
+VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
+
 const std::vector<const char*> DEVICE_EXTENSIONS = {
 	VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
 	VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
@@ -11,8 +14,17 @@ const std::vector<const char*> DEVICE_EXTENSIONS = {
 
 const uint64_t STAGING_BUFFER_SIZE = 1024 * 1024 * 10; // 10 MB
 
+static void InitializeVulkanDispatcher()
+{
+	vk::detail::DynamicLoader dl;
+	auto vkGetInstanceProcAddr = dl.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr");
+	VULKAN_HPP_DEFAULT_DISPATCHER.init(vkGetInstanceProcAddr);
+}
+
 vk::Instance CreateVulkanInstance()
 {
+	InitializeVulkanDispatcher();
+
 	auto applicationInfo = vk::ApplicationInfo()
 		.setPApplicationName("Sound Engine")
 		.setApplicationVersion(VK_MAKE_VERSION(1, 0, 0))
@@ -25,7 +37,10 @@ vk::Instance CreateVulkanInstance()
 		.setEnabledExtensionCount(0)
 		.setPpEnabledExtensionNames(nullptr);
 
-	return vk::createInstance(instanceInfo);
+	auto instance = vk::createInstance(instanceInfo);
+	VULKAN_HPP_DEFAULT_DISPATCHER.init(instance);
+
+	return instance;
 }
 
 vk::PhysicalDevice GetPhysicalDevice(vk::Instance instance)
@@ -83,7 +98,10 @@ vk::Device CreateLogicalDevice(vk::PhysicalDevice& physicalDevice, uint32_t queu
 		.setPpEnabledExtensionNames(DEVICE_EXTENSIONS.data())
 		.setPNext(&deviceFeatures);
 
-	return physicalDevice.createDevice(deviceCreateInfo);
+	auto device = physicalDevice.createDevice(deviceCreateInfo);
+	VULKAN_HPP_DEFAULT_DISPATCHER.init(device);
+	
+	return device;
 }
 
 vk::CommandPool CreateCommandPool(vk::Device& device, uint32_t queueFamilyIndex)
