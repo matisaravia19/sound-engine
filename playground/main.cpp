@@ -2,6 +2,9 @@
 #include "sound-engine/engine.h"
 #include "sound-engine/impulse.h"
 
+Wave GetWave();
+
+Wave GetNewWave(const Wave& wave, std::vector<float>& newSamples);
 int main()
 {
 	const int screenWidth = 800;
@@ -12,46 +15,6 @@ int main()
 
 	auto engine = std::make_unique<se::Engine>();
 	engine->Initialize();
-
-	// Test impulse response mapping with raytracing
-	auto impulseMapper = std::make_unique<se::ImpulseResponseMapper>(engine->GetGpuProgram());
-	
-	// Create a simple test scene (a box)
-	se::Scene testScene;
-	se::Mesh testMesh;
-	
-	// Create a simple cube mesh
-	testMesh.vertices = {
-		{{-1.0f, -1.0f, -1.0f}}, {{1.0f, -1.0f, -1.0f}}, {{1.0f, 1.0f, -1.0f}}, {{-1.0f, 1.0f, -1.0f}}, // front
-		{{-1.0f, -1.0f, 1.0f}}, {{1.0f, -1.0f, 1.0f}}, {{1.0f, 1.0f, 1.0f}}, {{-1.0f, 1.0f, 1.0f}}   // back
-	};
-	
-	testMesh.indices = {
-		0, 1, 2, 2, 3, 0, // front
-		1, 5, 6, 6, 2, 1, // right
-		7, 6, 5, 5, 4, 7, // back
-		4, 0, 3, 3, 7, 4, // left
-		4, 5, 1, 1, 0, 4, // bottom
-		3, 2, 6, 6, 7, 3  // top
-	};
-	
-	testScene.meshes.push_back(testMesh);
-	
-	try {
-		impulseMapper->UploadScene(testScene);
-		impulseMapper->InitializeRaytracing();
-		
-		// Test impulse response generation
-		float sourcePos[3] = {0.0f, 0.0f, 0.0f};
-		float listenerPos[3] = {2.0f, 0.0f, 0.0f};
-		auto impulseResponse = impulseMapper->GenerateImpulseResponse(sourcePos, listenerPos);
-		
-		printf("Generated impulse response with %zu samples at %.0f Hz\n", 
-			impulseResponse.data.size(), impulseResponse.sampleRate);
-	}
-	catch (const std::exception& e) {
-		printf("Error setting up impulse response mapping: %s\n", e.what());
-	}
 
 	// Define the camera to look into our 3d world
 	Camera camera = { 0 };
@@ -76,63 +39,13 @@ int main()
 
 	Vector3 mapPosition = { -16.0f, 0.0f, -8.0f };  // Set model position
 
-//	Sound sound = LoadSoundFromWave(wave); // Load maze music sound
-//	PlaySound(sound);
+	Wave wave = GetWave();
 
 	auto auralizer = engine->GetAuralizer();
-	Wave wave = LoadWave("resources/music.mp3"); // Load maze music wave
-
-	// Let's test with a wave made up of just 1.0s to see if the auralizer works
-	int waveSize = 44100 * 0.1; // 0.1 seconds of audio at 44100 Hz
-	float* testWave = new float[waveSize];
-	for (int i = 0; i < waveSize; i++)
-	{
-		testWave[i] = 0.0f; // Fill with 1.0s
-	}
-
-	testWave[0] = 1.0f; // Set the first sample to 1.0 to simulate a sound
-
 	auralizer->Init();
-	auto transformedWave = auralizer->Process(testWave, waveSize);
 
-	// Convert wave to mono and keep only the first 10 seconds
-	if (wave.channels > 1)
-	{
-		float* originalData = (float*)wave.data;
-
-		wave.frameCount = (int)(wave.sampleRate * 10); // Limit to 10 seconds
-
-		wave.data = RL_MALLOC(wave.frameCount * sizeof(float));
-		for (int i = 0; i < wave.frameCount; i++)
-		{
-			((float*)wave.data)[i] = originalData[i * wave.channels]; // Take only the first channel
-		}
-
-		wave.channels = 1;
-
-		RL_FREE(originalData);
-	}
-
-//	float testSamples[] = { 1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f };
-//	auto newSamples = auralizer->TestInit(testSamples, 4);
 	auto newSamples = auralizer->Process((float*)wave.data, wave.frameCount);
-	Wave newWave = { 0 };
-	newWave.sampleRate = wave.sampleRate;
-	newWave.sampleSize = 32; // 32-bit float
-	newWave.channels = 1; // Mono
-	newWave.frameCount = (int)newSamples.size();
-	newWave.data = RL_MALLOC(newWave.frameCount * sizeof(float));
-	for (int i = 0; i < newWave.frameCount; i++)
-	{
-		if (newSamples[i] != newSamples[i]) // Check if the sample is NaN
-		{
-			newSamples[i] = 0; // Replace NaN with a valid value
-		}
-		((float*)newWave.data)[i] = newSamples[i];
-	}
-
-//	SetAudioStreamBufferSizeDefault(512);
-//	AudioStream stream = LoadAudioStream(44100, 32, 1); // Load audio stream for music playback
+	Wave newWave = GetNewWave(wave, newSamples);
 
 	DisableCursor();                // Limit cursor to relative movement inside the window
 
@@ -218,4 +131,46 @@ int main()
 	//--------------------------------------------------------------------------------------
 
 	return 0;
+}
+Wave GetNewWave(const Wave& wave, std::vector<float>& newSamples)
+{
+	Wave newWave = { 0 };
+	newWave.sampleRate = wave.sampleRate;
+	newWave.sampleSize = 32; // 32-bit float
+	newWave.channels = 1; // Mono
+	newWave.frameCount = (int)newSamples.size();
+	newWave.data = RL_MALLOC(newWave.frameCount * sizeof(float));
+	for (int i = 0; i < newWave.frameCount; i++)
+	{
+		if (newSamples[i] != newSamples[i]) // Check if the sample is NaN
+		{
+			newSamples[i] = 0; // Replace NaN with a valid value
+		}
+		((float*)newWave.data)[i] = newSamples[i];
+	}
+	return newWave;
+}
+
+Wave GetWave()
+{
+	Wave wave = LoadWave("resources/music.mp3"); // Load maze music wave
+	// Convert wave to mono and keep only the first 10 seconds
+	if (wave.channels > 1)
+	{
+		float* originalData = (float*)wave.data;
+
+		wave.frameCount = (int)(wave.sampleRate * 10); // Limit to 10 seconds
+
+		wave.data = RL_MALLOC(wave.frameCount * sizeof(float));
+		for (int i = 0; i < wave.frameCount; i++)
+		{
+			((float*)wave.data)[i] = originalData[i * wave.channels]; // Take only the first channel
+		}
+
+		wave.channels = 1;
+
+		RL_FREE(originalData);
+	}
+
+	return wave;
 }

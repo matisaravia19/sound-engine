@@ -8,8 +8,7 @@ set(SOURCES
         src/impl/vulkan.cpp
         src/engine.cpp
         src/impulse.cpp
-        src/auralizer.cpp
-        main.cpp)
+        src/auralizer.cpp)
 
 add_library(${PROJECT_NAME} STATIC ${SOURCES})
 

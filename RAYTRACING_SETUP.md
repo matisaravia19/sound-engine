@@ -2,7 +2,8 @@
 
 ## Overview
 
-This document describes the raytracing setup implemented for building impulse responses of 3D scenes. The implementation uses Vulkan's raytracing extensions to perform acoustic path tracing.
+This document describes the raytracing setup implemented for building impulse responses of 3D scenes. The implementation uses Vulkan's raytracing extensions to perform
+acoustic path tracing.
 
 ## Architecture
 
@@ -15,35 +16,38 @@ This document describes the raytracing setup implemented for building impulse re
 ### Key Features Implemented
 
 1. **Bottom Level Acceleration Structures (BLAS)**
-   - One BLAS per mesh in the scene
-   - Built from vertex and index buffers with proper flags for raytracing
-   - Uses triangles geometry type with opaque flags
+    - One BLAS per mesh in the scene
+    - Built from vertex and index buffers with proper flags for raytracing
+    - Uses triangles geometry type with opaque flags
 
 2. **Top Level Acceleration Structure (TLAS)**
-   - Contains instances of all BLAS objects
-   - Uses identity transform matrix for simplicity
-   - Enables fast raytracing queries across the entire scene
+    - Contains instances of all BLAS objects
+    - Uses identity transform matrix for simplicity
+    - Enables fast raytracing queries across the entire scene
 
 3. **Raytracing Pipeline**
-   - Ray generation shader for casting acoustic rays
-   - Miss shader for handling rays that don't hit geometry
-   - Closest hit shader for processing ray-surface intersections
-   - Descriptor sets for acceleration structure and output buffers
+    - Ray generation shader for casting acoustic rays
+    - Miss shader for handling rays that don't hit geometry
+    - Closest hit shader for processing ray-surface intersections
+    - Descriptor sets for acceleration structure and output buffers
 
 ## Shader Setup
 
 Three shaders were created for the raytracing pipeline:
 
 ### impulse.rgen (Ray Generation)
+
 - Casts rays from source positions
 - Samples different directions for acoustic path tracing
 - Writes results to output buffer
 
 ### impulse.rmiss (Miss Shader)
+
 - Handles rays that escape the scene
 - Returns background/ambient acoustic response
 
 ### impulse.rchit (Closest Hit)
+
 - Processes ray-surface intersections
 - Calculates acoustic reflections and material properties
 - Handles secondary ray bouncing for reverberation
@@ -62,25 +66,26 @@ The `ImpulseResponseMapper` class provides:
 
 ```cpp
 // Create impulse response mapper
-auto impulseMapper = std::make_unique<se::ImpulseResponseMapper>(gpuProgram);
+auto irMapper = std::make_unique<se::ImpulseResponseMapper>(gpuProgram);
 
 // Upload scene geometry
 se::Scene scene;
 // ... populate scene with meshes ...
-impulseMapper->UploadScene(scene);
+irMapper->UploadScene(scene);
 
 // Initialize raytracing acceleration structures
-impulseMapper->InitializeRaytracing();
+irMapper->InitializeRaytracing();
 
 // Generate impulse response between two points
 float sourcePos[3] = {0.0f, 0.0f, 0.0f};
 float listenerPos[3] = {2.0f, 0.0f, 0.0f};
-auto impulseResponse = impulseMapper->GenerateImpulseResponse(sourcePos, listenerPos);
+auto impulseResponse = irMapper->GenerateImpulseResponse(sourcePos, listenerPos);
 ```
 
 ## Current Status and Next Steps
 
 ### Implemented Features
+
 - ✅ Vulkan raytracing extension setup
 - ✅ Acceleration structure creation (BLAS/TLAS)
 - ✅ Basic raytracing pipeline structure
@@ -89,6 +94,7 @@ auto impulseResponse = impulseMapper->GenerateImpulseResponse(sourcePos, listene
 - ✅ Basic impulse response generation framework
 
 ### TODO for Full Implementation
+
 - [ ] Complete shader compilation integration with glslang
 - [ ] Implement actual GPU raytracing dispatch
 - [ ] Add material properties for acoustic reflectance

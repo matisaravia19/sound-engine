@@ -96,18 +96,7 @@ se::ImpulseResponse se::ImpulseResponseMapper::GenerateImpulseResponse(
 			impulseData[directSample] = amplitude;
 		}
 
-		// TODO: Use raytracing to find reflections and add them to the impulse response
-		// For now, add some simple simulated reflections
-		for (int reflection = 1; reflection <= 3; ++reflection)
-		{
-			float reflectionDistance = distance * (1.0f + reflection * 0.5f);
-			int reflectionSample = static_cast<int>(reflectionDistance / 343.0f * sampleRate);
-			if (reflectionSample < numSamples)
-			{
-				float reflectionAmplitude = 1.0f / (1.0f + distance) * std::pow(0.6f, reflection);
-				impulseData[reflectionSample] += reflectionAmplitude;
-			}
-		}
+		// TODO: Add first-order reflections using GPU ray tracing (future work)
 	}
 
 	return ImpulseResponse{ impulseData, static_cast<float>(sampleRate) };
@@ -116,12 +105,5 @@ se::ImpulseResponse se::ImpulseResponseMapper::GenerateImpulseResponse(
 bool se::ImpulseResponseMapper::TestRaycast(const float origin[3], const float direction[3], float maxDistance)
 {
 	if (!raytracingInitialized) throw std::runtime_error("Raytracing not initialized");
-
-	// For now, this is a placeholder implementation
-	// In a full implementation, you would dispatch rays using the raytracing pipeline
-	// and check for intersections with the scene geometry
-
-	// Simple test: check if ray intersects with a bounding box of the scene
-	// This is just a stub - real raytracing would use the GPU pipeline
-	return false;
+	return rtProgram->TestOcclusion(origin, direction, 0.001f, maxDistance);
 }

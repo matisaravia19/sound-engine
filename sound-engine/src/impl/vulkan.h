@@ -24,6 +24,7 @@ namespace se
 	{
 		GpuBuffer vertexBuffer;
 		GpuBuffer indexBuffer;
+		vk::TransformMatrixKHR transform;
 	};
 
 	struct AccelerationStructure
@@ -31,6 +32,16 @@ namespace se
 		vk::AccelerationStructureKHR handle = VK_NULL_HANDLE;
 		GpuBuffer buffer;
 		vk::DeviceAddress address = 0;
+	};
+
+	struct BLAccelerationStructure : public AccelerationStructure
+	{
+		GpuMesh* mesh = nullptr;
+	};
+
+	struct TLAccelerationStructure : public AccelerationStructure
+	{
+		std::vector<BLAccelerationStructure>* bottomLevelAS;
 	};
 
 	struct RaytracingPipeline
@@ -48,16 +59,19 @@ namespace se
 
 	struct RaytracingProgram
 	{
-		std::vector<AccelerationStructure> bottomLevelAS;
-		AccelerationStructure topLevelAS;
+		std::vector<BLAccelerationStructure> bottomLevelAS;
+		TLAccelerationStructure topLevelAS;
 		RaytracingPipeline rtPipeline;
 
 		std::shared_ptr<GpuProgram> gpuProgram;
 
 		RaytracingProgram(std::shared_ptr<GpuProgram> gpuProgram);
 
-		void Init(const std::vector<GpuMesh>& meshes);
+		void Init(std::vector<GpuMesh>& meshes);
 		void Destroy();
+
+		// Trace a single ray and report whether it hits anything
+		bool TestOcclusion(const float origin[3], const float direction[3], float tmin, float tmax);
 	};
 
 	struct GpuProgram
@@ -89,8 +103,8 @@ namespace se
 		void FreeBuffer(GpuBuffer& buffer);
 
 		// Raytracing methods
-		AccelerationStructure CreateBottomLevelAccelerationStructure(const std::vector<GpuMesh>& meshes);
-		AccelerationStructure CreateTopLevelAccelerationStructure(const std::vector<AccelerationStructure>& bottomLevelAS);
+		BLAccelerationStructure CreateBottomLevelAccelerationStructure(GpuMesh& mesh);
+		TLAccelerationStructure CreateTopLevelAccelerationStructure(std::vector<BLAccelerationStructure>& bottomLevelAS);
 		void DestroyAccelerationStructure(AccelerationStructure& as);
 
 		std::vector<uint32_t> CompileShader(const std::string& source, const std::string& filename, vk::ShaderStageFlagBits stage);

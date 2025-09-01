@@ -6,6 +6,7 @@ se::Engine::Engine()
 {
 	program = std::make_shared<GpuProgram>();
 	auralizer = std::make_shared<Auralizer>(program);
+	irMapper = std::make_shared<ImpulseResponseMapper>(program);
 }
 
 se::Engine::~Engine() = default;
