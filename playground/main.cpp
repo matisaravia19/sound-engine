@@ -3,8 +3,8 @@
 #include "sound-engine/impulse.h"
 
 Wave GetWave();
-
 Wave GetNewWave(const Wave& wave, std::vector<float>& newSamples);
+
 int main()
 {
 	const int screenWidth = 800;
@@ -40,6 +40,53 @@ int main()
 	Vector3 mapPosition = { -16.0f, 0.0f, -8.0f };  // Set model position
 
 	Wave wave = GetWave();
+
+	// Build se::Scene from the generated Raylib mesh and upload to GPU
+	// Extract vertex positions and indices, and set transform to mapPosition
+	se::Scene scene;
+	{
+		se::Mesh sMesh;
+		sMesh.vertices.resize(mesh.vertexCount);
+		// Raylib Mesh vertices are float array of size vertexCount*3: [x0,y0,z0, x1,y1,z1, ...]
+		for (int i = 0; i < mesh.vertexCount; i++)
+		{
+			sMesh.vertices[i].position[0] = mesh.vertices[i * 3 + 0];
+			sMesh.vertices[i].position[1] = mesh.vertices[i * 3 + 1];
+			sMesh.vertices[i].position[2] = mesh.vertices[i * 3 + 2];
+		}
+
+		// Indices may be 0..vertexCount-1 if none provided; Raylib indices are unsigned short (triangle list)
+		if (mesh.indices != nullptr && mesh.triangleCount > 0)
+		{
+			sMesh.indices.reserve(mesh.triangleCount * 3);
+			for (int i = 0; i < mesh.triangleCount * 3; ++i)
+			{
+				sMesh.indices.push_back(static_cast<unsigned int>(mesh.indices[i]));
+			}
+		}
+		else
+		{
+			// Fallback: generate a linear index buffer
+			sMesh.indices.reserve(mesh.vertexCount);
+			for (int i = 0; i < mesh.vertexCount; ++i) sMesh.indices.push_back(static_cast<unsigned int>(i));
+		}
+
+		// Set transform as translation to match DrawModel(model, mapPosition, 1.0f)
+		for (int r = 0; r < 4; r++) for (int c = 0; c < 4; c++) sMesh.transform[r][c] = 0.0f;
+		sMesh.transform[0][0] = 1.0f;
+		sMesh.transform[1][1] = 1.0f;
+		sMesh.transform[2][2] = 1.0f;
+		sMesh.transform[3][3] = 1.0f;
+		sMesh.transform[0][3] = mapPosition.x;
+		sMesh.transform[1][3] = mapPosition.y;
+		sMesh.transform[2][3] = mapPosition.z;
+
+		scene.meshes.push_back(std::move(sMesh));
+	}
+
+	auto ir = engine->GetImpulseResponseMapper();
+	ir->UploadScene(scene);
+	ir->InitializeRaytracing();
 
 	auto auralizer = engine->GetAuralizer();
 	auralizer->Init();

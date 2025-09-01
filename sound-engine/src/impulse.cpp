@@ -49,7 +49,10 @@ void se::ImpulseResponseMapper::UploadScene(const se::Scene& scene)
 		auto indexBuffer = program->GetBuffer(indexBufferSize, indexBufferUsage, memoryProperties);
 		program->UploadToBuffer(indexBuffer, (void*)mesh.indices.data(), indexBufferSize);
 
-		gpuMeshes.push_back(GpuMesh{ vertexBuffer, indexBuffer });
+		vk::TransformMatrixKHR transform;
+		std::memcpy(transform.matrix.data(), mesh.transform, sizeof(float) * 12); // 3x4 matrix
+
+		gpuMeshes.push_back(GpuMesh{ vertexBuffer, indexBuffer, transform });
 	}
 
 	sceneUploaded = true;

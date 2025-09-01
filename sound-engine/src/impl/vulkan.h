@@ -108,6 +108,8 @@ namespace se
 		void DestroyAccelerationStructure(AccelerationStructure& as);
 
 		std::vector<uint32_t> CompileShader(const std::string& source, const std::string& filename, vk::ShaderStageFlagBits stage);
+		// Load a text shader from disk (GLSL). Returns the file contents.
+		std::string LoadShader(const std::string& filename);
 		RaytracingPipeline CreateRaytracingPipeline();
 		void DestroyRaytracingPipeline(RaytracingPipeline& pipeline);
 

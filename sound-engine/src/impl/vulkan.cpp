@@ -1,6 +1,7 @@
 #include "vulkan.h"
 #include "glslang/Public/ShaderLang.h"
 #include "SPIRV/GlslangToSpv.h"
+#include <fstream>
 
 // Define storage for Vulkan-Hpp's default dynamic dispatcher
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
@@ -678,6 +679,22 @@ std::vector<uint32_t> se::GpuProgram::CompileShader(const std::string& source, c
 	return spirv;
 }
 
+std::string se::GpuProgram::LoadShader(const std::string& filename)
+{
+	std::ifstream file(filename, std::ios::in | std::ios::binary);
+	if (!file.is_open())
+	{
+		throw std::runtime_error("Failed to open shader file: " + filename);
+	}
+	std::string contents;
+	file.seekg(0, std::ios::end);
+	contents.resize(static_cast<size_t>(file.tellg()));
+	file.seekg(0, std::ios::beg);
+	file.read(contents.data(), contents.size());
+	file.close();
+	return contents;
+}
+
 se::RaytracingPipeline se::GpuProgram::CreateRaytracingPipeline()
 {
 	RaytracingPipeline pipeline{};
@@ -706,38 +723,14 @@ se::RaytracingPipeline se::GpuProgram::CreateRaytracingPipeline()
 		.setPSetLayouts(&pipeline.descriptorSetLayout);
 	pipeline.layout = device.createPipelineLayout(pipelineLayoutInfo);
 
-	// Embedded minimal shaders for occlusion test
-	const std::string rgen = R"GLSL(
-#version 460
-#extension GL_EXT_ray_tracing : require
-layout(set=0,binding=0) uniform accelerationStructureEXT topLevelAS;
-layout(set=0,binding=1, std430) buffer Params { vec4 origin; vec4 direction; float tmin; float tmax; uint result; } params;
-layout(location=0) rayPayloadEXT uint hit;
-void main(){
-  uint flags=gl_RayFlagsOpaqueEXT; uint mask=0xffu; hit=0u;
-  traceRayEXT(topLevelAS, flags, mask, 0, 0, 0, params.origin.xyz, params.tmin, params.direction.xyz, params.tmax, 0);
-  params.result = hit;
-}
-)GLSL";
+	// Load minimal occlusion shaders from files
+	const std::string rgenSrc = LoadShader("C:/Users/matis/OneDrive/Documentos/Fing/Tesis/codigo/sound-engine/src/shaders/occlusion.rgen");
+	const std::string rmissSrc = LoadShader("C:/Users/matis/OneDrive/Documentos/Fing/Tesis/codigo/sound-engine/src/shaders/occlusion.rmiss");
+	const std::string rchitSrc = LoadShader("C:/Users/matis/OneDrive/Documentos/Fing/Tesis/codigo/sound-engine/src/shaders/occlusion.rchit");
 
-	const std::string rmiss = R"GLSL(
-#version 460
-#extension GL_EXT_ray_tracing : require
-layout(location=0) rayPayloadInEXT uint hit;
-void main(){ hit = 0u; }
-)GLSL";
-
-	const std::string rchit = R"GLSL(
-#version 460
-#extension GL_EXT_ray_tracing : require
-layout(location=0) rayPayloadInEXT uint hit;
-hitAttributeEXT vec2 attribs; // unused
-void main(){ hit = 1u; /* TODO: gather reflection/diffraction info */ }
-)GLSL";
-
-	auto rgenSpv = CompileShader(rgen, "occlusion.rgen", vk::ShaderStageFlagBits::eRaygenKHR);
-	auto rmissSpv = CompileShader(rmiss, "occlusion.rmiss", vk::ShaderStageFlagBits::eMissKHR);
-	auto rchitSpv = CompileShader(rchit, "occlusion.rchit", vk::ShaderStageFlagBits::eClosestHitKHR);
+	auto rgenSpv = CompileShader(rgenSrc, "occlusion.rgen", vk::ShaderStageFlagBits::eRaygenKHR);
+	auto rmissSpv = CompileShader(rmissSrc, "occlusion.rmiss", vk::ShaderStageFlagBits::eMissKHR);
+	auto rchitSpv = CompileShader(rchitSrc, "occlusion.rchit", vk::ShaderStageFlagBits::eClosestHitKHR);
 
 	auto makeModule = [&](const std::vector<uint32_t>& code)
 	{
